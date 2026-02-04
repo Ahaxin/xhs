@@ -1,0 +1,33 @@
+xiaohongshu:
+  creator_center_url: "https://creator.xiaohongshu.com"
+  login_method: "qr_code"  # or "qr_code" (both supported)
+  session_file: "data/xhs_session.json"
+  phone_number: ""  # For SMS login (user will configure)
+
+content_fetching:
+  enabled: false  # Phase 2 feature - disabled initially
+  source_url: ""  # To be configured later
+  schedule: "0 */6 * * *"  # Every 6 hours
+  max_items: 10
+
+publishing:
+  mode: "approval"  # "approval" or "auto" (auto mode for future)
+  max_posts_per_day: 3  # Rate limiting
+  retry_attempts: 3
+  retry_delay: 60  # seconds
+  human_delay_min: 2  # Minimum delay between actions (seconds)
+  human_delay_max: 5  # Maximum delay between actions (seconds)
+
+ui:
+  host: "127.0.0.1"
+  port: 5000
+  debug: true  # Enable during development
+
+database:
+  path: "data/xhs.db"
+
+logging:
+  level: "INFO"
+  file: "logs/xhs.log"
+  rotation: "10 MB"
+  retention: "7 days"

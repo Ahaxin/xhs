@@ -1,0 +1,15 @@
+selenium>=4.15.0
+webdriver-manager>=4.0.1
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+aiofiles>=23.2.1
+pydantic>=2.5.0
+pydantic-settings>=2.1.0
+pillow>=10.1.0
+beautifulsoup4>=4.12.2
+requests>=2.31.0
+python-dotenv>=1.0.0
+apscheduler>=3.10.4
+loguru>=0.7.2
+pyyaml>=6.0.1
