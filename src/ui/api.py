@@ -32,9 +32,55 @@ setup_logging(
 db = Database(config.database.path)
 content_manager = ContentManager(db)
 
-# Global auth manager and publisher (initialized on first login)
+# Global auth manager and publisher
 auth_manager: Optional[XHSAuthManager] = None
 publisher: Optional[XHSPublisher] = None
+
+# Initialize auth manager on startup to restore session
+def init_auth_manager():
+    """Initialize auth manager and try to restore saved session."""
+    global auth_manager, publisher
+    try:
+        auth_manager = XHSAuthManager(
+            creator_url=config.xiaohongshu.creator_center_url,
+            session_file=config.xiaohongshu.session_file,
+            login_method=config.xiaohongshu.login_method,
+            phone_number=config.xiaohongshu.phone_number,
+        )
+        # Try to restore session in background
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(_restore_session)
+            # Don't wait for completion, let it run in background
+    except Exception as e:
+        logger.error(f"Error initializing auth manager: {e}")
+
+def _restore_session():
+    """Restore saved session if available."""
+    global auth_manager, publisher
+    try:
+        if not auth_manager:
+            return
+        
+        # Initialize browser
+        auth_manager._init_browser(headless=True)
+        
+        # Try to load session
+        if auth_manager._load_session():
+            # Check if session is still valid
+            if auth_manager.is_logged_in():
+                logger.info("Session restored successfully")
+                # Initialize publisher
+                driver = auth_manager.get_driver()
+                if driver:
+                    publisher = XHSPublisher(driver)
+                return True
+            else:
+                logger.info("Saved session expired")
+        return False
+    except Exception as e:
+        logger.error(f"Error restoring session: {e}")
+        return False
 
 app = FastAPI(title="XHS Auto-Publishing Agent", version="1.0.0")
 
@@ -98,15 +144,28 @@ async def root():
 @app.get("/api/status")
 async def get_status():
     """Get system status."""
+    global auth_manager, publisher
     logged_in = False
-    if auth_manager:
+    
+    # Initialize auth manager if not already done
+    if not auth_manager:
+        init_auth_manager()
+    
+    if auth_manager and auth_manager.driver:
         # Run sync is_logged_in in thread pool
         import concurrent.futures
         try:
             with concurrent.futures.ThreadPoolExecutor() as executor:
                 future = executor.submit(auth_manager.is_logged_in)
                 logged_in = future.result(timeout=10)
-        except:
+                
+                # Initialize publisher if logged in but publisher not set
+                if logged_in and not publisher:
+                    driver = auth_manager.get_driver()
+                    if driver:
+                        publisher = XHSPublisher(driver)
+        except Exception as e:
+            logger.error(f"Error checking login status: {e}")
             logged_in = False
     
     return {
@@ -222,6 +281,7 @@ async def login(request: LoginRequest):
     global auth_manager, publisher
     
     try:
+        # Reinitialize auth manager with requested method
         auth_manager = XHSAuthManager(
             creator_url=config.xiaohongshu.creator_center_url,
             session_file=config.xiaohongshu.session_file,
@@ -240,8 +300,10 @@ async def login(request: LoginRequest):
             driver = auth_manager.get_driver()
             if driver:
                 publisher = XHSPublisher(driver)
+            logger.info("Login successful, session saved")
             return {"success": True, "message": "Login successful"}
         else:
+            logger.warning("Login failed")
             return {"success": False, "message": "Login failed"}
             
     except Exception as e:

@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -30,7 +31,7 @@
             background: white;
             padding: 30px;
             border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
             margin-bottom: 30px;
         }
 
@@ -79,12 +80,12 @@
             cursor: pointer;
             font-size: 1em;
             transition: all 0.3s;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
         }
 
         .tab:hover {
             transform: translateY(-2px);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+            box-shadow: 0 8px 20px rgba(0, 0, 0, 0.15);
         }
 
         .tab.active {
@@ -96,7 +97,7 @@
             background: white;
             padding: 30px;
             border-radius: 15px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
         }
 
         .form-group {
@@ -205,10 +206,25 @@
             font-weight: 600;
         }
 
-        .badge-pending { background: #ffeaa7; color: #d63031; }
-        .badge-approved { background: #55efc4; color: #00b894; }
-        .badge-published { background: #74b9ff; color: #0984e3; }
-        .badge-rejected { background: #fab1a0; color: #e17055; }
+        .badge-pending {
+            background: #ffeaa7;
+            color: #d63031;
+        }
+
+        .badge-approved {
+            background: #55efc4;
+            color: #00b894;
+        }
+
+        .badge-published {
+            background: #74b9ff;
+            color: #0984e3;
+        }
+
+        .badge-rejected {
+            background: #fab1a0;
+            color: #e17055;
+        }
 
         .image-upload {
             border: 2px dashed #667eea;
@@ -261,14 +277,15 @@
         }
     </style>
 </head>
+
 <body>
     <div id="app">
         <div class="header">
             <h1><i class="fas fa-book"></i> 小红书自动发布助手</h1>
             <p>状态: <span :class="systemStatus.logged_in ? 'badge-approved' : 'badge-pending'" class="badge">
-                {{ systemStatus.logged_in ? '已登录' : '未登录' }}
-            </span></p>
-            
+                    {{ systemStatus.logged_in ? '已登录' : '未登录' }}
+                </span></p>
+
             <div class="stats">
                 <div class="stat-card">
                     <h3>{{ stats.pending }}</h3>
@@ -293,7 +310,8 @@
             <button class="tab" :class="{active: currentTab === 'create'}" @click="currentTab = 'create'">
                 <i class="fas fa-plus"></i> 创建内容
             </button>
-            <button class="tab" :class="{active: currentTab === 'pending'}" @click="currentTab = 'pending'; loadPendingContent()">
+            <button class="tab" :class="{active: currentTab === 'pending'}"
+                @click="currentTab = 'pending'; loadPendingContent()">
                 <i class="fas fa-clock"></i> 待审核 ({{ stats.pending }})
             </button>
             <button class="tab" :class="{active: currentTab === 'all'}" @click="currentTab = 'all'; loadAllContent()">
@@ -308,30 +326,31 @@
         <div v-if="currentTab === 'create'" class="content-section">
             <h2>创建新内容</h2>
             <div v-if="message" :class="'alert alert-' + messageType">{{ message }}</div>
-            
+
             <form @submit.prevent="createContent">
                 <div class="form-group">
                     <label>标题</label>
                     <input v-model="newContent.title" type="text" placeholder="输入标题..." required>
                 </div>
-                
+
                 <div class="form-group">
                     <label>正文</label>
                     <textarea v-model="newContent.body" placeholder="输入正文内容..." required></textarea>
                 </div>
-                
+
                 <div class="form-group">
                     <label>图片 (可选)</label>
                     <div class="image-upload" @click="$refs.imageInput.click()">
                         <i class="fas fa-cloud-upload-alt fa-3x" style="color: #667eea;"></i>
                         <p>点击上传图片</p>
-                        <input ref="imageInput" type="file" multiple accept="image/*" @change="handleImageUpload" style="display: none;">
+                        <input ref="imageInput" type="file" multiple accept="image/*" @change="handleImageUpload"
+                            style="display: none;">
                     </div>
                     <div v-if="newContent.imageFiles.length > 0" class="image-preview">
                         <img v-for="(file, index) in newContent.imagePreviews" :key="index" :src="file" alt="Preview">
                     </div>
                 </div>
-                
+
                 <button type="submit" class="btn" :disabled="loading">
                     <i class="fas fa-paper-plane"></i> {{ loading ? '提交中...' : '提交内容' }}
                 </button>
@@ -390,15 +409,16 @@
             <div class="login-section">
                 <h2>登录小红书创作中心</h2>
                 <div v-if="message" :class="'alert alert-' + messageType">{{ message }}</div>
-                
+
                 <div class="form-group">
                     <label>登录方式</label>
-                    <select v-model="loginData.method" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px;">
+                    <select v-model="loginData.method"
+                        style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px;">
                         <option value="sms">短信验证码</option>
                         <option value="qr_code">二维码扫描</option>
                     </select>
                 </div>
-                
+
                 <div v-if="loginData.method === 'sms'">
                     <div class="form-group">
                         <label>手机号</label>
@@ -409,11 +429,11 @@
                         <input v-model="loginData.verification_code" type="text" placeholder="验证码">
                     </div>
                 </div>
-                
+
                 <button class="btn" @click="login" :disabled="loading">
                     <i class="fas fa-sign-in-alt"></i> {{ loading ? '登录中...' : '开始登录' }}
                 </button>
-                
+
                 <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 8px;">
                     <p><strong>注意:</strong></p>
                     <ul style="margin-left: 20px; margin-top: 10px;">
@@ -468,6 +488,16 @@
             mounted() {
                 this.loadStats();
                 this.loadSystemStatus();
+
+                // Auto-refresh status every 5 seconds
+                setInterval(() => {
+                    this.loadSystemStatus();
+                }, 5000);
+
+                // Auto-refresh stats every 10 seconds
+                setInterval(() => {
+                    this.loadStats();
+                }, 10000);
             },
             methods: {
                 async loadStats() {
@@ -506,7 +536,7 @@
                     const files = Array.from(event.target.files);
                     this.newContent.imageFiles = files;
                     this.newContent.imagePreviews = [];
-                    
+
                     files.forEach(file => {
                         const reader = new FileReader();
                         reader.onload = (e) => {
@@ -518,20 +548,20 @@
                 async createContent() {
                     this.loading = true;
                     this.message = '';
-                    
+
                     try {
                         const formData = new FormData();
                         formData.append('title', this.newContent.title);
                         formData.append('body', this.newContent.body);
-                        
+
                         this.newContent.imageFiles.forEach(file => {
                             formData.append('images', file);
                         });
-                        
+
                         await axios.post('/api/content/create', formData, {
                             headers: { 'Content-Type': 'multipart/form-data' }
                         });
-                        
+
                         this.message = '内容创建成功!';
                         this.messageType = 'success';
                         this.newContent = { title: '', body: '', imageFiles: [], imagePreviews: [] };
@@ -564,7 +594,7 @@
                 },
                 async publishContent(id) {
                     if (!confirm('确定要发布此内容到小红书吗?')) return;
-                    
+
                     try {
                         const response = await axios.post(`/api/publish/${id}`);
                         alert(response.data.message);
@@ -577,12 +607,12 @@
                 async login() {
                     this.loading = true;
                     this.message = '';
-                    
+
                     try {
                         const response = await axios.post('/api/auth/login', this.loginData);
                         this.message = response.data.message;
                         this.messageType = response.data.success ? 'success' : 'error';
-                        
+
                         if (response.data.success) {
                             this.loadSystemStatus();
                         }
@@ -610,4 +640,5 @@
         }).mount('#app');
     </script>
 </body>
+
 </html>

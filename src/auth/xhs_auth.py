@@ -261,7 +261,7 @@ class XHSAuthManager:
             
             logger.info("Starting QR code login flow")
             self.driver.get(self.creator_url)
-            self._random_delay()
+            self._random_delay(2, 4)
             
             # Click QR login tab
             try:
@@ -271,36 +271,49 @@ class XHSAuthManager:
                 qr_tab.click()
                 self._random_delay()
                 logger.info("Clicked QR code login tab")
-            except:
-                logger.warning("Could not find QR login tab, assuming already on QR login")
+            except Exception as e:
+                logger.warning(f"Could not find QR login tab: {e}")
+                logger.info("Assuming already on QR login page")
             
             # Wait for QR code to appear
-            WebDriverWait(self.driver, 15).until(
-                EC.presence_of_element_located((By.XPATH, '//img[contains(@class, "qr")] | //canvas[contains(@class, "qr")] | //div[contains(@class, "qrcode")]'))
-            )
-            logger.info("QR code displayed - please scan with Xiaohongshu mobile app")
+            try:
+                WebDriverWait(self.driver, 15).until(
+                    EC.presence_of_element_located((By.XPATH, '//img[contains(@class, "qr")] | //canvas[contains(@class, "qr")] | //div[contains(@class, "qrcode")]'))
+                )
+                logger.info("QR code displayed - please scan with Xiaohongshu mobile app")
+            except Exception as e:
+                logger.error(f"QR code not found: {e}")
+                logger.info("Continuing anyway, user may need to manually navigate")
             
             # Wait for login completion (URL changes)
+            logger.info("Waiting for QR code scan (up to 2 minutes)...")
             try:
                 WebDriverWait(self.driver, 120).until(
                     lambda d: 'login' not in d.current_url.lower()
                 )
-            except:
-                logger.warning("Timeout waiting for QR scan")
+                logger.info("URL changed, checking login status")
+            except Exception as e:
+                logger.warning(f"Timeout or error waiting for QR scan: {e}")
             
             self._random_delay(2, 3)
             
             # Verify login success
-            if self.is_logged_in():
-                logger.info("QR code login successful!")
-                self._save_session()
-                return True
-            else:
-                logger.error("QR code login failed - not logged in after process")
+            try:
+                if self.is_logged_in():
+                    logger.info("QR code login successful!")
+                    self._save_session()
+                    return True
+                else:
+                    logger.error("QR code login failed - not logged in after process")
+                    return False
+            except Exception as e:
+                logger.error(f"Error verifying login status: {e}")
                 return False
                 
         except Exception as e:
             logger.error(f"QR code login error: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return False
     
     def login(self, verification_code: Optional[str] = None) -> bool:
