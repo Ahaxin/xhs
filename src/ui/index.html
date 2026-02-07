@@ -339,7 +339,21 @@
                 </div>
 
                 <div class="form-group">
-                    <label>图片 (可选)</label>
+                    <label>发布模式</label>
+                    <select v-model="newContent.publishMode" style="width: 100%; padding: 12px; border: 2px solid #e0e0e0; border-radius: 8px; font-size: 1em;">
+                        <option value="image_text_upload">上传图文 - 上传图片 (图片优先)</option>
+                        <option value="image_text_compose">上传图文 - 文字配图 (文字优先)</option>
+                        <option value="long_article">写长文 (长篇文章)</option>
+                    </select>
+                    <small style="color: #666; margin-top: 5px; display: block;">
+                        <span v-if="newContent.publishMode === 'image_text_upload'">适合图片为主的内容，先上传图片再添加文字描述</span>
+                        <span v-else-if="newContent.publishMode === 'image_text_compose'">适合文字为主的内容，先写文字再配图</span>
+                        <span v-else-if="newContent.publishMode === 'long_article'">适合长篇深度内容，支持富文本编辑</span>
+                    </small>
+                </div>
+
+                <div class="form-group">
+                    <label>图片 ({{ newContent.publishMode === 'long_article' ? '可选' : newContent.publishMode === 'image_text_upload' ? '推荐上传' : '可选' }})</label>
                     <div class="image-upload" @click="$refs.imageInput.click()">
                         <i class="fas fa-cloud-upload-alt fa-3x" style="color: #667eea;"></i>
                         <p>点击上传图片</p>
@@ -371,6 +385,7 @@
                     <div class="meta">
                         <span><i class="fas fa-calendar"></i> {{ formatDate(content.created_at) }}</span>
                         <span><i class="fas fa-image"></i> {{ content.images.length }} 张图片</span>
+                        <span class="badge" style="background: #667eea;"><i class="fas fa-paper-plane"></i> {{ getPublishModeText(content.publish_mode) }}</span>
                     </div>
                     <div class="actions">
                         <button class="btn btn-success" @click="approveContent(content.id)">
@@ -394,6 +409,7 @@
                     <div class="meta">
                         <span><i class="fas fa-calendar"></i> {{ formatDate(content.created_at) }}</span>
                         <span :class="'badge badge-' + content.status">{{ getStatusText(content.status) }}</span>
+                        <span class="badge" style="background: #667eea;"><i class="fas fa-paper-plane"></i> {{ getPublishModeText(content.publish_mode) }}</span>
                     </div>
                     <div class="actions" v-if="content.status === 'approved'">
                         <button class="btn" @click="publishContent(content.id)" :disabled="!systemStatus.logged_in">
@@ -470,6 +486,7 @@
                     newContent: {
                         title: '',
                         body: '',
+                        publishMode: 'image_text_upload',
                         imageFiles: [],
                         imagePreviews: []
                     },
@@ -553,6 +570,7 @@
                         const formData = new FormData();
                         formData.append('title', this.newContent.title);
                         formData.append('body', this.newContent.body);
+                        formData.append('publish_mode', this.newContent.publishMode);
 
                         this.newContent.imageFiles.forEach(file => {
                             formData.append('images', file);
@@ -564,7 +582,7 @@
 
                         this.message = '内容创建成功!';
                         this.messageType = 'success';
-                        this.newContent = { title: '', body: '', imageFiles: [], imagePreviews: [] };
+                        this.newContent = { title: '', body: '', publishMode: 'image_text_upload', imageFiles: [], imagePreviews: [] };
                         this.loadStats();
                     } catch (error) {
                         this.message = '创建失败: ' + (error.response?.data?.detail || error.message);
@@ -635,6 +653,14 @@
                         'failed': '失败'
                     };
                     return statusMap[status] || status;
+                },
+                getPublishModeText(mode) {
+                    const modeMap = {
+                        'image_text_upload': '上传图片',
+                        'image_text_compose': '文字配图',
+                        'long_article': '写长文'
+                    };
+                    return modeMap[mode] || mode;
                 }
             }
         }).mount('#app');

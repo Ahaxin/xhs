@@ -1,6 +1,7 @@
 """
 FastAPI backend for XHS auto-publishing agent.
 """
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, UploadFile, File, Form
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse, FileResponse
@@ -9,9 +10,9 @@ from pydantic import BaseModel
 from typing import List, Optional
 from pathlib import Path
 import shutil
-import asyncio
+import time
 
-from ..content.database import Database, Content, ContentStatus, ContentSource
+from ..content.database import Database, Content, ContentStatus, ContentSource, PublishMode
 from ..content.manager import ContentManager
 from ..auth.xhs_auth import XHSAuthManager
 from ..publisher.publisher import XHSPublisher
@@ -61,14 +62,14 @@ def _restore_session():
     try:
         if not auth_manager:
             return
-        
+
         # Initialize browser
         auth_manager._init_browser(headless=True)
-        
+
         # Try to load session
         if auth_manager._load_session():
-            # Check if session is still valid
-            if auth_manager.is_logged_in():
+            # Check if session is still valid (force check since we just loaded)
+            if auth_manager.is_logged_in(force_check=True):
                 logger.info("Session restored successfully")
                 # Initialize publisher
                 driver = auth_manager.get_driver()
@@ -82,7 +83,18 @@ def _restore_session():
         logger.error(f"Error restoring session: {e}")
         return False
 
-app = FastAPI(title="XHS Auto-Publishing Agent", version="1.0.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler for startup and shutdown."""
+    # Startup
+    yield
+    # Shutdown
+    global auth_manager
+    if auth_manager:
+        auth_manager.close()
+
+
+app = FastAPI(title="XHS Auto-Publishing Agent", version="1.0.0", lifespan=lifespan)
 
 # CORS middleware
 app.add_middleware(
@@ -112,6 +124,7 @@ class ContentResponse(BaseModel):
     images: List[str]
     source: str
     status: str
+    publish_mode: str
     created_at: str
     published_at: Optional[str]
     error_message: Optional[str]
@@ -146,27 +159,20 @@ async def get_status():
     """Get system status."""
     global auth_manager, publisher
     logged_in = False
-    
+
     # Initialize auth manager if not already done
     if not auth_manager:
         init_auth_manager()
-    
+
     if auth_manager and auth_manager.driver:
-        # Run sync is_logged_in in thread pool
-        import concurrent.futures
-        try:
-            with concurrent.futures.ThreadPoolExecutor() as executor:
-                future = executor.submit(auth_manager.is_logged_in)
-                logged_in = future.result(timeout=10)
-                
-                # Initialize publisher if logged in but publisher not set
-                if logged_in and not publisher:
-                    driver = auth_manager.get_driver()
-                    if driver:
-                        publisher = XHSPublisher(driver)
-        except Exception as e:
-            logger.error(f"Error checking login status: {e}")
-            logged_in = False
+        # Use cached login status (no browser navigation)
+        logged_in = auth_manager.is_logged_in(force_check=False)
+
+        # Initialize publisher if logged in but publisher not set
+        if logged_in and not publisher:
+            driver = auth_manager.get_driver()
+            if driver:
+                publisher = XHSPublisher(driver)
     
     return {
         "status": "running",
@@ -198,27 +204,35 @@ async def get_stats():
 async def create_content(
     title: str = Form(...),
     body: str = Form(...),
+    publish_mode: str = Form(default="image_text_upload"),
     images: List[UploadFile] = File(default=[]),
 ):
-    """Create new content with optional images."""
+    """Create new content with optional images and publish mode."""
     try:
         # Save uploaded images
         image_paths = []
         for image in images:
             if image.filename:
-                file_path = UPLOAD_DIR / f"{int(asyncio.get_event_loop().time() * 1000)}_{image.filename}"
+                file_path = UPLOAD_DIR / f"{int(time.time() * 1000)}_{image.filename}"
                 with open(file_path, "wb") as f:
                     shutil.copyfileobj(image.file, f)
                 image_paths.append(str(file_path.absolute()))
-        
+
+        # Parse publish mode
+        try:
+            mode = PublishMode(publish_mode)
+        except ValueError:
+            mode = PublishMode.IMAGE_TEXT_UPLOAD
+
         # Create content
         content_id = content_manager.create_content(
             title=title,
             body=body,
             images=image_paths,
             source=ContentSource.MANUAL,
+            publish_mode=mode,
         )
-        
+
         return {"success": True, "content_id": content_id}
     except Exception as e:
         logger.error(f"Error creating content: {e}")
@@ -356,14 +370,6 @@ async def publish_content(content_id: int):
         logger.error(f"Publishing error: {e}")
         content_manager.mark_failed(content_id, str(e))
         raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.on_event("shutdown")
-async def shutdown():
-    """Cleanup on shutdown."""
-    global auth_manager
-    if auth_manager:
-        auth_manager.close()
 
 
 if __name__ == "__main__":

@@ -74,27 +74,66 @@ class Content:
         }
 
     @classmethod
-    def from_row(cls, row: tuple) -> "Content":
-        """Create Content from database row."""
-        # Handle both old schema (without publish_mode) and new schema
-        publish_mode = PublishMode.IMAGE_TEXT_UPLOAD  # default
-        if len(row) > 6:
+    def from_row(cls, row) -> "Content":
+        """Create Content from database row (sqlite3.Row or tuple)."""
+        # Use column names if available (sqlite3.Row), otherwise use indexes
+        # This handles both old and new schemas correctly
+
+        def get_value(row, name: str, index: int, default=None):
+            """Get value by column name or index."""
             try:
-                publish_mode = PublishMode(row[6]) if row[6] else PublishMode.IMAGE_TEXT_UPLOAD
-            except:
+                # Try column name first (sqlite3.Row)
+                return row[name]
+            except (KeyError, TypeError):
+                # Fall back to index (tuple)
+                try:
+                    return row[index] if len(row) > index else default
+                except (TypeError, IndexError):
+                    return default
+
+        # Parse publish_mode with fallback
+        publish_mode_str = get_value(row, 'publish_mode', 6)
+        try:
+            publish_mode = PublishMode(publish_mode_str) if publish_mode_str else PublishMode.IMAGE_TEXT_UPLOAD
+        except (ValueError, KeyError):
+            publish_mode = PublishMode.IMAGE_TEXT_UPLOAD
+
+        # Parse created_at
+        created_at_str = get_value(row, 'created_at', 7)
+        created_at = None
+        if created_at_str:
+            try:
+                created_at = datetime.fromisoformat(created_at_str)
+            except (ValueError, TypeError):
                 pass
-        
+
+        # Parse published_at
+        published_at_str = get_value(row, 'published_at', 8)
+        published_at = None
+        if published_at_str:
+            try:
+                published_at = datetime.fromisoformat(published_at_str)
+            except (ValueError, TypeError):
+                pass
+
+        # Parse images
+        images_str = get_value(row, 'images', 3)
+        try:
+            images = json.loads(images_str) if images_str else []
+        except (json.JSONDecodeError, TypeError):
+            images = []
+
         return cls(
-            id=row[0],
-            title=row[1],
-            body=row[2],
-            images=json.loads(row[3]) if row[3] else [],
-            source=ContentSource(row[4]),
-            status=ContentStatus(row[5]),
+            id=get_value(row, 'id', 0),
+            title=get_value(row, 'title', 1, ""),
+            body=get_value(row, 'body', 2, ""),
+            images=images,
+            source=ContentSource(get_value(row, 'source', 4, ContentSource.MANUAL.value)),
+            status=ContentStatus(get_value(row, 'status', 5, ContentStatus.PENDING.value)),
             publish_mode=publish_mode,
-            created_at=datetime.fromisoformat(row[7]) if len(row) > 7 and row[7] else None,
-            published_at=datetime.fromisoformat(row[8]) if len(row) > 8 and row[8] else None,
-            error_message=row[9] if len(row) > 9 else None,
+            created_at=created_at,
+            published_at=published_at,
+            error_message=get_value(row, 'error_message', 9),
         )
 
 
@@ -138,7 +177,7 @@ class Database:
             try:
                 conn.execute("ALTER TABLE content ADD COLUMN publish_mode TEXT DEFAULT 'image_text_upload'")
                 conn.commit()
-            except:
+            except sqlite3.OperationalError:
                 pass  # Column already exists
             
             # Create indexes for common queries

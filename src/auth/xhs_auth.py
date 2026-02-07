@@ -22,7 +22,7 @@ from loguru import logger
 
 class XHSAuthManager:
     """Manages authentication to Xiaohongshu Creator Center using Selenium."""
-    
+
     def __init__(
         self,
         creator_url: str = "https://creator.xiaohongshu.com",
@@ -36,7 +36,8 @@ class XHSAuthManager:
         self.login_method = login_method
         self.phone_number = phone_number
         self.driver: Optional[webdriver.Chrome] = None
-        
+        self._logged_in: bool = False  # Cached login state
+
         # Ensure session directory exists
         Path(session_file).parent.mkdir(parents=True, exist_ok=True)
     
@@ -78,7 +79,29 @@ class XHSAuthManager:
         })
         
         logger.info("Browser initialized with stealth settings (Selenium)")
-    
+
+    def _is_driver_alive(self) -> bool:
+        """Check if the WebDriver session is still valid."""
+        if not self.driver:
+            return False
+        try:
+            # Try a simple operation to verify connection
+            _ = self.driver.current_url
+            return True
+        except Exception:
+            return False
+
+    def _ensure_driver(self, headless: bool = False):
+        """Ensure driver is initialized and alive, reinitialize if needed."""
+        if not self._is_driver_alive():
+            if self.driver:
+                try:
+                    self.driver.quit()
+                except Exception:
+                    pass
+                self.driver = None
+            self._init_browser(headless=headless)
+
     def _save_session(self):
         """Save browser session (cookies)."""
         if not self.driver:
@@ -100,64 +123,92 @@ class XHSAuthManager:
         if not cookies_path.exists():
             logger.info("No saved session found")
             return False
-        
+
+        # Check if driver is alive before attempting to load cookies
+        if not self._is_driver_alive():
+            logger.warning("Driver not alive, cannot load session")
+            return False
+
         try:
             # Load cookies
             with open(cookies_path, 'rb') as f:
                 cookies = pickle.load(f)
-            
+
             if not cookies:
                 logger.warning("Session file has no cookies")
                 return False
-            
+
             # Navigate to domain first
             self.driver.get(self.creator_url)
             self._random_delay(1, 2)
-            
-            # Add cookies
+
+            # Add cookies (skip failures silently for non-critical cookies)
+            loaded_count = 0
             for cookie in cookies:
                 try:
                     self.driver.add_cookie(cookie)
+                    loaded_count += 1
                 except Exception as e:
-                    logger.warning(f"Could not add cookie: {e}")
-            
-            logger.info(f"Loaded session from {self.cookies_file}")
-            return True
+                    # Only log debug level for individual cookie failures
+                    logger.debug(f"Skipped cookie: {e}")
+
+            if loaded_count > 0:
+                logger.info(f"Loaded {loaded_count}/{len(cookies)} cookies from {self.cookies_file}")
+                return True
+            else:
+                logger.warning("No cookies could be loaded")
+                return False
         except Exception as e:
             logger.error(f"Failed to load session: {e}")
             return False
     
-    def is_logged_in(self) -> bool:
-        """Check if currently logged in to XHS Creator Center."""
-        if not self.driver:
+    def is_logged_in(self, force_check: bool = False) -> bool:
+        """
+        Check if currently logged in to XHS Creator Center.
+
+        Args:
+            force_check: If True, navigate to check actual login status.
+                        If False, return cached status (default).
+        """
+        # Check if driver is alive
+        if not self._is_driver_alive():
+            self._logged_in = False
             return False
-        
+
+        # Return cached status unless force_check is requested
+        if not force_check:
+            return self._logged_in
+
         try:
             # Navigate to creator center
             self.driver.get(self.creator_url)
             self._random_delay(2, 3)
-            
+
             # Check URL (logged in users typically don't see login page)
             current_url = self.driver.current_url
             if 'login' not in current_url.lower():
                 logger.info("Already logged in (no login page)")
+                self._logged_in = True
                 return True
-            
+
             # Check for user-specific elements
             try:
                 WebDriverWait(self.driver, 5).until(
                     EC.presence_of_element_located((By.CSS_SELECTOR, 'div[class*="user"], div[class*="avatar"], a[class*="profile"]'))
                 )
                 logger.info("Already logged in (found user elements)")
+                self._logged_in = True
                 return True
-            except:
+            except Exception:
                 pass
-            
+
             logger.info("Not logged in")
+            self._logged_in = False
             return False
-            
+
         except Exception as e:
             logger.error(f"Error checking login status: {e}")
+            self._logged_in = False
             return False
     
     def login_sms(self, verification_code: Optional[str] = None) -> bool:
@@ -171,9 +222,9 @@ class XHSAuthManager:
             True if login successful
         """
         try:
-            if not self.driver:
-                self._init_browser(headless=False)  # Show browser for SMS login
-            
+            # Ensure browser is ready
+            self._ensure_driver(headless=False)
+
             logger.info("Starting SMS login flow")
             self.driver.get(self.creator_url)
             self._random_delay()
@@ -186,7 +237,7 @@ class XHSAuthManager:
                 sms_tab.click()
                 self._random_delay()
                 logger.info("Clicked SMS login tab")
-            except:
+            except Exception:
                 logger.warning("Could not find SMS login tab, assuming already on SMS login")
             
             # Enter phone number
@@ -233,18 +284,22 @@ class XHSAuthManager:
                 )
             
             self._random_delay(2, 3)
-            
-            # Verify login success
-            if self.is_logged_in():
+
+            # Verify login success by checking URL
+            current_url = self.driver.current_url
+            if 'login' not in current_url.lower():
                 logger.info("SMS login successful!")
+                self._logged_in = True
                 self._save_session()
                 return True
             else:
-                logger.error("SMS login failed - not logged in after process")
+                logger.error("SMS login failed - still on login page")
+                self._logged_in = False
                 return False
-                
+
         except Exception as e:
             logger.error(f"SMS login error: {e}")
+            self._logged_in = False
             return False
     
     def login_qr(self) -> bool:
@@ -256,9 +311,9 @@ class XHSAuthManager:
             True if login successful
         """
         try:
-            if not self.driver:
-                self._init_browser(headless=False)  # Show browser for QR login
-            
+            # Ensure browser is ready
+            self._ensure_driver(headless=False)
+
             logger.info("Starting QR code login flow")
             self.driver.get(self.creator_url)
             self._random_delay(2, 4)
@@ -296,51 +351,56 @@ class XHSAuthManager:
                 logger.warning(f"Timeout or error waiting for QR scan: {e}")
             
             self._random_delay(2, 3)
-            
-            # Verify login success
+
+            # Verify login success by checking URL
             try:
-                if self.is_logged_in():
+                current_url = self.driver.current_url
+                if 'login' not in current_url.lower():
                     logger.info("QR code login successful!")
+                    self._logged_in = True
                     self._save_session()
                     return True
                 else:
-                    logger.error("QR code login failed - not logged in after process")
+                    logger.error("QR code login failed - still on login page")
+                    self._logged_in = False
                     return False
             except Exception as e:
                 logger.error(f"Error verifying login status: {e}")
+                self._logged_in = False
                 return False
-                
+
         except Exception as e:
             logger.error(f"QR code login error: {e}")
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
+            self._logged_in = False
             return False
     
     def login(self, verification_code: Optional[str] = None) -> bool:
         """
         Login using configured method (SMS or QR code).
-        
+
         Args:
             verification_code: For SMS login only
-        
+
         Returns:
             True if login successful
         """
-        # Initialize browser
-        if not self.driver:
-            self._init_browser(headless=False)
-        
+        # Ensure browser is initialized and alive
+        self._ensure_driver(headless=False)
+
         # Try loading existing session first
         session_loaded = self._load_session()
-        
+
         if session_loaded:
-            # Check if session is still valid
-            if self.is_logged_in():
+            # Check if session is still valid (force check since we just loaded session)
+            if self.is_logged_in(force_check=True):
                 logger.info("Logged in using saved session")
+                self._logged_in = True
                 return True
             else:
                 logger.info("Saved session expired, need fresh login")
-        
+
         # Perform fresh login
         if self.login_method == "sms":
             return self.login_sms(verification_code)
@@ -358,4 +418,6 @@ class XHSAuthManager:
     
     def get_driver(self) -> Optional[webdriver.Chrome]:
         """Get the current driver instance for publishing operations."""
-        return self.driver
+        if self._is_driver_alive():
+            return self.driver
+        return None

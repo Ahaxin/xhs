@@ -2,22 +2,23 @@
 Content manager for handling content operations.
 """
 from typing import List, Optional
-from .database import Database, Content, ContentStatus, ContentSource
+from .database import Database, Content, ContentStatus, ContentSource, PublishMode
 from loguru import logger
 
 
 class ContentManager:
     """Manages content creation, approval, and publishing workflow."""
-    
+
     def __init__(self, db: Database):
         self.db = db
-    
+
     def create_content(
         self,
         title: str,
         body: str,
         images: Optional[List[str]] = None,
         source: ContentSource = ContentSource.MANUAL,
+        publish_mode: PublishMode = PublishMode.IMAGE_TEXT_UPLOAD,
     ) -> int:
         """Create new content entry."""
         content = Content(
@@ -26,9 +27,10 @@ class ContentManager:
             images=images or [],
             source=source,
             status=ContentStatus.PENDING,
+            publish_mode=publish_mode,
         )
         content_id = self.db.create_content(content)
-        logger.info(f"Created content #{content_id}: {title[:50]}...")
+        logger.info(f"Created content #{content_id}: {title[:50]}... (mode: {publish_mode.value})")
         return content_id
     
     def get_pending_content(self) -> List[Content]:
