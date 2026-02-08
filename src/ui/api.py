@@ -372,6 +372,205 @@ async def publish_content(content_id: int):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# ==================== BannaFlow Integration Endpoints ====================
+
+# Global BannaFlow integration instance
+bannaflow_integration = None
+
+
+class BannaFlowImportRequest(BaseModel):
+    publish_mode: str = "image_text_upload"
+    auto_approve: bool = False
+
+
+class WorkflowRequest(BaseModel):
+    publish_mode: str = "image_text_upload"
+    auto_approve: bool = False
+
+
+@app.post("/api/bannaflow/import")
+async def import_from_bannaflow(request: BannaFlowImportRequest):
+    """Import content from BannaFlow and optionally auto-approve."""
+    global bannaflow_integration
+
+    try:
+        from ..generator.bannaflow import BannaFlowIntegration, create_content_from_bannaflow
+
+        # Initialize BannaFlow integration
+        if not bannaflow_integration:
+            bannaflow_integration = BannaFlowIntegration(headless=False)
+
+        # Import in thread pool to avoid blocking
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(bannaflow_integration.import_from_bannaflow)
+            contents = future.result(timeout=120)
+
+        if not contents:
+            return {"success": False, "message": "No content found in BannaFlow", "imported": 0}
+
+        # Import each content item
+        imported_ids = []
+        try:
+            mode = PublishMode(request.publish_mode)
+        except ValueError:
+            mode = PublishMode.IMAGE_TEXT_UPLOAD
+
+        for content in contents:
+            title, body, images = create_content_from_bannaflow(content)
+
+            content_id = content_manager.create_content(
+                title=title,
+                body=body,
+                images=images,
+                source=ContentSource.FETCHED,
+                publish_mode=mode,
+            )
+            imported_ids.append(content_id)
+
+            # Auto-approve if requested
+            if request.auto_approve:
+                content_manager.approve_content(content_id)
+
+        return {
+            "success": True,
+            "message": f"Imported {len(imported_ids)} content items",
+            "imported": len(imported_ids),
+            "content_ids": imported_ids,
+        }
+
+    except Exception as e:
+        logger.error(f"BannaFlow import error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/bannaflow/open")
+async def open_bannaflow():
+    """Open BannaFlow in browser for interactive content generation."""
+    global bannaflow_integration
+
+    try:
+        from ..generator.bannaflow import BannaFlowIntegration
+
+        # Initialize BannaFlow integration
+        if not bannaflow_integration:
+            bannaflow_integration = BannaFlowIntegration(headless=False)
+
+        # Open BannaFlow in thread pool
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(bannaflow_integration.open_bannaflow)
+            success = future.result(timeout=30)
+
+        if success:
+            return {"success": True, "message": "BannaFlow opened in browser"}
+        else:
+            return {"success": False, "message": "Failed to open BannaFlow"}
+
+    except Exception as e:
+        logger.error(f"Failed to open BannaFlow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/bannaflow/history")
+async def get_bannaflow_history():
+    """Get content history from BannaFlow."""
+    global bannaflow_integration
+
+    try:
+        from ..generator.bannaflow import BannaFlowIntegration
+
+        if not bannaflow_integration:
+            bannaflow_integration = BannaFlowIntegration(headless=False)
+
+        # Get history in thread pool
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # First open BannaFlow if not already open
+            future = executor.submit(bannaflow_integration.open_bannaflow)
+            future.result(timeout=30)
+
+            # Then get history
+            future = executor.submit(bannaflow_integration.get_published_history)
+            history = future.result(timeout=30)
+
+        return {
+            "success": True,
+            "count": len(history),
+            "history": history,
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to get BannaFlow history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/bannaflow/close")
+async def close_bannaflow():
+    """Close BannaFlow browser."""
+    global bannaflow_integration
+
+    try:
+        if bannaflow_integration:
+            bannaflow_integration.close()
+            bannaflow_integration = None
+
+        return {"success": True, "message": "BannaFlow browser closed"}
+
+    except Exception as e:
+        logger.error(f"Failed to close BannaFlow: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/workflow/run")
+async def run_workflow(request: WorkflowRequest):
+    """
+    Run the complete content generation and publishing workflow.
+
+    This endpoint runs a background workflow that:
+    1. Opens BannaFlow for content generation
+    2. Imports generated content
+    3. Approves content (if auto_approve is True)
+    4. Publishes to Xiaohongshu
+
+    Note: This is a long-running operation. For production use,
+    consider using a task queue like Celery.
+    """
+    try:
+        from ..generator.workflow import ContentWorkflow
+
+        try:
+            mode = PublishMode(request.publish_mode)
+        except ValueError:
+            mode = PublishMode.IMAGE_TEXT_UPLOAD
+
+        workflow = ContentWorkflow(
+            db_path=config.database.path,
+            session_file=config.xiaohongshu.session_file,
+        )
+
+        # Run workflow in thread pool
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(
+                workflow.run_import_and_publish,
+                publish_mode=mode,
+                auto_approve=request.auto_approve,
+            )
+            success = future.result(timeout=600)  # 10 minute timeout
+
+        workflow.cleanup()
+
+        if success:
+            return {"success": True, "message": "Workflow completed successfully"}
+        else:
+            return {"success": False, "message": "Workflow failed - check logs for details"}
+
+    except Exception as e:
+        logger.error(f"Workflow error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(

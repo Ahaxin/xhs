@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m unittest:*)",
+      "Bash(python -c:*)",
+      "Bash(python -m tests.test_integration:*)"
+    ]
+  }
+}
